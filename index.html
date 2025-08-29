@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EMS</title>
+  <link rel="stylesheet" href="https://unpkg.com/modern-css-reset/dist/reset.min.css">
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px; background: var(--bg); color: var(--fg); }
+    :root { --bg: #ffffff; --fg: #111111; --card: #f5f5f5; }
+    [data-theme="dark"] { --bg: #0b0b0f; --fg: #f0f0f3; --card: #17171d; }
+    .container { max-width: 960px; margin: 0 auto; }
+    .card { background: var(--card); padding: 16px; border-radius: 12px; margin-bottom: 16px; }
+    input, select, button { padding: 8px 12px; border-radius: 8px; border: 1px solid #ccc; background: transparent; color: inherit; }
+    button { cursor: pointer; border: 1px solid #888; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row > * { flex: 1; min-width: 180px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; border-bottom: 1px solid #3333; text-align: left; }
+    .right { text-align: right; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card" style="display:flex; justify-content: space-between; align-items:center;">
+      <h2 style="margin:0;">Employee Management System</h2>
+      <div>
+        <button id="themeToggle">Toggle Theme</button>
+        <button id="logoutBtn" style="display:none;">Logout</button>
+      </div>
+    </div>
+
+    <div id="loginCard" class="card">
+      <h3>Login</h3>
+      <div class="row">
+        <input id="email" type="email" placeholder="Email" value="admin@ems.local" />
+        <input id="password" type="password" placeholder="Password" value="admin123" />
+        <button id="loginBtn">Login</button>
+      </div>
+      <p id="loginMsg" style="color:crimson"></p>
+    </div>
+
+    <div id="dashboard" style="display:none;">
+      <div class="card">
+        <h3>Dashboard</h3>
+        <div class="row">
+          <div class="card" style="flex:1;">
+            <div>Total Employees</div>
+            <div id="totalEmployees" style="font-size:24px; font-weight:700;">-</div>
+          </div>
+          <div class="card" style="flex:2;">
+            <div>By Department</div>
+            <div id="byDepartment"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Add Employee</h3>
+        <div class="row">
+          <input id="empName" placeholder="Full Name" />
+          <input id="empEmail" placeholder="Email" />
+          <input id="empPhone" placeholder="Phone" />
+          <select id="empDept"></select>
+          <select id="empRole"></select>
+          <input id="empSalary" type="number" placeholder="Salary" />
+          <button id="addBtn">Add</button>
+        </div>
+        <p id="addMsg" style="color:seagreen"></p>
+      </div>
+
+      <div class="card">
+        <h3>Employees</h3>
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Email</th><th>Phone</th><th>Department</th><th>Role</th><th class="right">Salary</th></tr>
+          </thead>
+          <tbody id="empTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:4000/api';
+
+    const qs = s => document.querySelector(s);
+    const loginCard = qs('#loginCard');
+    const dashboard = qs('#dashboard');
+    const loginBtn = qs('#loginBtn');
+    const logoutBtn = qs('#logoutBtn');
+    const themeToggle = qs('#themeToggle');
+
+    function setTheme(dark) {
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      localStorage.setItem('theme', dark ? 'dark' : 'light');
+    }
+    setTheme(localStorage.getItem('theme') === 'dark');
+
+    themeToggle.onclick = () => setTheme(document.documentElement.getAttribute('data-theme') !== 'dark');
+
+    function token() { return localStorage.getItem('token'); }
+    function setToken(t) { if (t) localStorage.setItem('token', t); else localStorage.removeItem('token'); }
+
+    async function api(path, options = {}) {
+      const headers = options.headers || {}; headers['Content-Type'] = 'application/json';
+      if (token()) headers['Authorization'] = 'Bearer ' + token();
+      const res = await fetch(API + path, { ...options, headers });
+      if (!res.ok) throw new Error((await res.json()).message || 'Request failed');
+      return res.json();
+    }
+
+    async function loadMeta() {
+      const [depts, roles] = await Promise.all([
+        api('/departments'), api('/roles')
+      ]);
+      const deptSel = qs('#empDept'); deptSel.innerHTML = depts.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+      const roleSel = qs('#empRole'); roleSel.innerHTML = roles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+    }
+
+    async function loadEmployees() {
+      const rows = await api('/employees');
+      const tbody = qs('#empTable');
+      tbody.innerHTML = rows.map(r => `<tr>
+        <td>${r.full_name}</td>
+        <td>${r.email}</td>
+        <td>${r.phone || ''}</td>
+        <td>${r.department || ''}</td>
+        <td>${r.role || ''}</td>
+        <td class='right'>${r.salary || ''}</td>
+      </tr>`).join('');
+    }
+
+    async function loadDashboard() {
+      const s = await api('/dashboard/summary');
+      qs('#totalEmployees').textContent = s.employeeCount;
+      qs('#byDepartment').innerHTML = s.byDepartment.map(x => `${x.department}: ${x.count}`).join(' \u2022 ');
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadMeta(), loadEmployees(), loadDashboard()]);
+    }
+
+    loginBtn.onclick = async () => {
+      qs('#loginMsg').textContent = '';
+      try {
+        const email = qs('#email').value.trim();
+        const password = qs('#password').value;
+        const res = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+        setToken(res.token);
+        loginCard.style.display = 'none';
+        dashboard.style.display = '';
+        logoutBtn.style.display = '';
+        await refreshAll();
+      } catch (e) {
+        qs('#loginMsg').textContent = e.message;
+      }
+    };
+
+    logoutBtn.onclick = () => {
+      setToken(null);
+      dashboard.style.display = 'none';
+      loginCard.style.display = '';
+      logoutBtn.style.display = 'none';
+    };
+
+    qs('#addBtn').onclick = async () => {
+      qs('#addMsg').textContent = '';
+      try {
+        const payload = {
+          full_name: qs('#empName').value.trim(),
+          email: qs('#empEmail').value.trim(),
+          phone: qs('#empPhone').value.trim(),
+          department_id: Number(qs('#empDept').value),
+          role_id: Number(qs('#empRole').value),
+          salary: Number(qs('#empSalary').value)
+        };
+        await api('/employees', { method: 'POST', body: JSON.stringify(payload) });
+        qs('#addMsg').textContent = 'Employee added';
+        qs('#empName').value = qs('#empEmail').value = qs('#empPhone').value = qs('#empSalary').value = '';
+        await refreshAll();
+      } catch (e) { qs('#addMsg').textContent = e.message; }
+    };
+
+    // auto-login state
+    if (token()) {
+      loginCard.style.display = 'none'; dashboard.style.display = ''; logoutBtn.style.display = '';
+      refreshAll().catch(err => console.error(err));
+    }
+  </script>
+</body>
+</html>
